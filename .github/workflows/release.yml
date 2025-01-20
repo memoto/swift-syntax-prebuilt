@@ -1,0 +1,83 @@
+name: Create release
+
+on:
+  workflow_dispatch:
+    inputs: 
+      swift-syntax-tag: 
+        description: 'Tag related to swift-syntax version'
+        required: true
+        type: string
+      xcode-version:
+        description: 'Xcode version'
+        required: false
+        default: '16.2'
+        type: string
+      products:
+        description: 'Products to build'
+        required: false
+        default: 'SwiftCompilerPlugin SwiftDiagnostics SwiftParser SwiftParserDiagnostics SwiftRefactor SwiftSyntax SwiftBasicFormat SwiftSyntaxBuilder SwiftSyntaxMacros SwiftOperators'
+        type: string
+
+jobs:
+  release:
+    runs-on: macos-latest
+    env:
+      SWIFT_SYNTAX_TAG: ${{ inputs.swift-syntax-tag }}
+      SWIFT_SYNTAX_REPO: https://github.com/swiftlang/swift-syntax.git
+      XCODE_VERSION: ${{ inputs.xcode-version }}
+      BUILD_PATH: .build/release
+      ARTIFACT_REMOTE_PATH: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ inputs.swift-syntax-tag }}
+      PRODUCTS: ${{ inputs.products }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select xcode version
+        run: xcodes select $XCODE_VERSION
+      
+      - name: Clone original repo
+        run: |
+          git clone --branch $SWIFT_SYNTAX_TAG --depth 1 $SWIFT_SYNTAX_REPO swift-syntax
+      - name: Install xcframeworks builder
+        run: |
+          brew install segment-integrations/formulae/swift-create-xcframework
+      - name: Install stencil
+        run: |
+          brew install alephao/formulae/stencil
+      - name: Create xcframeworks
+        run: |
+          xcode-select -p
+          xcrun swift --version
+          mkdir -p $BUILD_PATH
+          set -o pipefail && swift create-xcframework $PRODUCTS --package-path swift-syntax --platform ios --platform macos --no-debug-symbols --zip --output $BUILD_PATH | xcbeautify
+          echo $BUILD_PATH
+          ls -l $BUILD_PATH
+      - name: Upload xcframeworks
+        uses: softprops/action-gh-release@v2
+        id: upload-artifacts
+        with:
+          draft: false
+          name: ${{ env.SWIFT_SYNTAX_TAG }}
+          tag_name: ${{ env.SWIFT_SYNTAX_TAG }}
+          body: Release from swift-syntax ${{ env.SWIFT_SYNTAX_TAG }}
+          files: ${{ env.BUILD_PATH }}/*.zip
+          fail_on_unmatched_files: true
+      - name: Generate package
+        env:
+          UPLOAD_URL: ${{ steps.upload-artifacts.outputs.url }}
+        run: |
+          echo "🛜 Upload url: $UPLOAD_URL"
+          echo "🌍 Artifacts path: $ARTIFACT_REMOTE_PATH"
+          mkdir -p $BUILD_PATH
+          echo "artifacts:" > $BUILD_PATH/Uploads.yaml
+          for file in $BUILD_PATH/*.sha256; do
+              echo "  - name: $(basename $file .sha256)" >> $BUILD_PATH/Uploads.yaml
+              echo "    checksum: $(cat $file)" >> $BUILD_PATH/Uploads.yaml
+          done
+
+          stencil render -t templates/Package.swift.stencil -d $BUILD_PATH/Uploads.yaml -o $BUILD_PATH/Package.swift.env
+          envsubst < $BUILD_PATH/Package.swift.env >> Package.swift
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Update for release ${{ env.SWIFT_SYNTAX_TAG }}
+          tagging_message: ${{ env.SWIFT_SYNTAX_TAG }}
+          file_pattern: "*.swift Sources/*"

@@ -1,0 +1,34 @@
+{# Stencil #}
+
+// swift-tools-version:6.0
+
+import PackageDescription
+
+var targets = [
+    {% for artifact in artifacts %}
+        "{{ artifact.name }}",
+    {% endfor %}
+]
+
+var checksums = [
+    {% for artifact in artifacts %}
+        "{{ artifact.name }}" : "{{ artifact.checksum }}",
+    {% endfor %}
+]
+
+let package = Package(
+    name: "SwiftSyntax",
+    products: [
+        .library(
+            name: "SwiftSyntaxWrapper",
+            targets: targets
+        ),
+    ],
+    targets: targets.map {
+        .binaryTarget(
+            name: $0, 
+            url: "$ARTIFACT_REMOTE_PATH/\($0).zip",
+            checksum: checksums[$0]
+        )
+    }
+)
