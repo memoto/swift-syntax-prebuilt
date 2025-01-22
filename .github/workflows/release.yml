@@ -15,7 +15,7 @@ on:
       products:
         description: 'Products to build'
         required: false
-        default: 'SwiftCompilerPlugin SwiftDiagnostics SwiftParser SwiftParserDiagnostics SwiftRefactor SwiftSyntax SwiftBasicFormat SwiftSyntaxBuilder SwiftSyntaxMacros SwiftOperators'
+        default: 'SwiftCompilerPlugin SwiftDiagnostics SwiftParser SwiftParserDiagnostics SwiftRefactor SwiftSyntax SwiftBasicFormat SwiftSyntaxBuilder SwiftSyntaxMacros SwiftOperators SwiftCompilerPluginMessageHandling SwiftLibraryPluginProvider SwiftSyntaxMacrosGenericTestSupport SwiftSyntaxMacrosTestSupport SwiftSyntaxMacroExpansion SwiftLexicalLookup SwiftIfConfig SwiftIDEUtils'
         type: string
 
 jobs:
@@ -28,6 +28,8 @@ jobs:
       BUILD_PATH: .build/release
       ARTIFACT_REMOTE_PATH: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ inputs.swift-syntax-tag }}
       PRODUCTS: ${{ inputs.products }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -43,14 +45,51 @@ jobs:
       - name: Install stencil
         run: |
           brew install alephao/formulae/stencil
+      - name: Restore artifacts
+        id: restore-artifacts
+        uses: actions/cache/restore@v4
+        with:
+          key: ${{ runner.os }}-${{ inputs.xcode-version }}-swift-syntax-${{ inputs.products }}-${{ inputs.swift-syntax-tag }}-${{ hashFiles('swift-syntax/Package.swift') }}
+          path: ${{ env.BUILD_PATH }}
       - name: Create xcframeworks
+        if: steps.restore-artifacts.outputs.cache-hit != 'true'
         run: |
           xcode-select -p
           xcrun swift --version
           mkdir -p $BUILD_PATH
-          set -o pipefail && swift create-xcframework $PRODUCTS --package-path swift-syntax --platform ios --platform macos --no-debug-symbols --zip --output $BUILD_PATH | xcbeautify
+          set -o pipefail && \
+          swift create-xcframework $PRODUCTS --package-path swift-syntax \
+          --platform ios --platform macos --no-debug-symbols \
+          --xc-setting OTHER_LDFLAGS="-weak_framework XCTest" \
+          --zip --output $BUILD_PATH | xcbeautify
           echo $BUILD_PATH
           ls -l $BUILD_PATH
+      - name: Cache artifacts
+        if: steps.restore-artifacts.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          key: ${{ steps.restore-artifacts.outputs.cache-primary-key }}
+          path: ${{ env.BUILD_PATH }}
+      - name: Generate package
+        run: |
+          echo "🌍 Artifacts path: $ARTIFACT_REMOTE_PATH"
+          mkdir -p $BUILD_PATH
+          echo "artifacts:" > $BUILD_PATH/Uploads.yaml
+          for file in $BUILD_PATH/*.sha256; do
+              echo "  - name: $(basename $file .sha256)" >> $BUILD_PATH/Uploads.yaml
+              echo "    checksum: $(cat $file)" >> $BUILD_PATH/Uploads.yaml
+          done
+
+          stencil render -t templates/Package.swift.stencil -d $BUILD_PATH/Uploads.yaml -o $BUILD_PATH/Package.swift.env
+          envsubst < $BUILD_PATH/Package.swift.env > Package.swift
+          cat Package.swift
+      - uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: Update for release ${{ env.SWIFT_SYNTAX_TAG }}
+          tagging_message: ${{ env.SWIFT_SYNTAX_TAG }}
+          file_pattern: "*.swift*"
+          push_options: '--force'
+          skip_fetch: true
       - name: Upload xcframeworks
         uses: softprops/action-gh-release@v2
         id: upload-artifacts
@@ -61,23 +100,4 @@ jobs:
           body: Release from swift-syntax ${{ env.SWIFT_SYNTAX_TAG }}
           files: ${{ env.BUILD_PATH }}/*.zip
           fail_on_unmatched_files: true
-      - name: Generate package
-        env:
-          UPLOAD_URL: ${{ steps.upload-artifacts.outputs.url }}
-        run: |
-          echo "🛜 Upload url: $UPLOAD_URL"
-          echo "🌍 Artifacts path: $ARTIFACT_REMOTE_PATH"
-          mkdir -p $BUILD_PATH
-          echo "artifacts:" > $BUILD_PATH/Uploads.yaml
-          for file in $BUILD_PATH/*.sha256; do
-              echo "  - name: $(basename $file .sha256)" >> $BUILD_PATH/Uploads.yaml
-              echo "    checksum: $(cat $file)" >> $BUILD_PATH/Uploads.yaml
-          done
-
-          stencil render -t templates/Package.swift.stencil -d $BUILD_PATH/Uploads.yaml -o $BUILD_PATH/Package.swift.env
-          envsubst < $BUILD_PATH/Package.swift.env >> Package.swift
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: Update for release ${{ env.SWIFT_SYNTAX_TAG }}
-          tagging_message: ${{ env.SWIFT_SYNTAX_TAG }}
-          file_pattern: "*.swift Sources/*"
+          token: ${{ secrets.RELEASE_GITHUB_TOKEN }}

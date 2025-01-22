@@ -1,5 +1,4 @@
 {# Stencil #}
-
 // swift-tools-version:6.0
 
 import PackageDescription
@@ -28,7 +27,7 @@ let package = Package(
         .binaryTarget(
             name: $0, 
             url: "$ARTIFACT_REMOTE_PATH/\($0).zip",
-            checksum: checksums[$0]
+            checksum: checksums[$0] ?? ""
         )
     }
 )
