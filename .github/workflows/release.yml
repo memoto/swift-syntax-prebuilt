@@ -31,7 +31,7 @@ jobs:
       SWIFT_SYNTAX_REPO: https://github.com/swiftlang/swift-syntax.git
       XCODE_VERSION: ${{ inputs.xcode-version }}
       BUILD_PATH: .build/release
-      ARTIFACT_REMOTE_PATH: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ inputs.swift-syntax-tag }}
+      ARTIFACT_REMOTE_PATH: ${{ github.server_url }}/${{ github.repository }}/releases/download/${{ inputs.release-tag }}
       PRODUCTS: ${{ inputs.products }}
     permissions:
       contents: write
@@ -50,11 +50,16 @@ jobs:
       - name: Install stencil
         run: |
           brew install alephao/formulae/stencil
+      - name: Calculate prodcuts checksum
+        id: calc-products-checksum
+        run: |
+          set e
+          echo "hash=$(echo $PRODUCTS | shasum -a 256 | awk '{print $1}')" >> $GITHUB_OUTPUT
       - name: Restore artifacts
         id: restore-artifacts
         uses: actions/cache/restore@v4
         with:
-          key: ${{ runner.os }}-${{ inputs.xcode-version }}-swift-syntax-${{ inputs.products }}-${{ inputs.swift-syntax-tag }}-${{ hashFiles('swift-syntax/Package.swift') }}
+          key: ${{ runner.os }}-${{ inputs.xcode-version }}-${{ steps.calc-products-checksum.outputs.hash }}-${{ inputs.release-tag }}-${{ hashFiles('swift-syntax/Package.swift') }}
           path: ${{ env.BUILD_PATH }}
       - name: Create xcframeworks
         if: steps.restore-artifacts.outputs.cache-hit != 'true'
