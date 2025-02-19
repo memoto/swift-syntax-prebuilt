@@ -7,6 +7,10 @@ on:
         description: 'Tag related to swift-syntax version'
         required: true
         type: string
+      release-tag:
+        description: 'Tag related to release version, if not provided, swift-syntax-tag will be used'
+        required: false
+        type: string
       xcode-version:
         description: 'Xcode version'
         required: false
@@ -23,6 +27,7 @@ jobs:
     runs-on: macos-latest
     env:
       SWIFT_SYNTAX_TAG: ${{ inputs.swift-syntax-tag }}
+      RELEASE_TAG: ${{ inputs.release-tag || inputs.swift-syntax-tag }}
       SWIFT_SYNTAX_REPO: https://github.com/swiftlang/swift-syntax.git
       XCODE_VERSION: ${{ inputs.xcode-version }}
       BUILD_PATH: .build/release
@@ -85,8 +90,8 @@ jobs:
           cat Package.swift
       - uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: Update for release ${{ env.SWIFT_SYNTAX_TAG }}
-          tagging_message: ${{ env.SWIFT_SYNTAX_TAG }}
+          commit_message: Update for release ${{ env.RELEASE_TAG }}
+          tagging_message: ${{ env.RELEASE_TAG }}
           file_pattern: "*.swift*"
           push_options: '--force'
           skip_fetch: true
@@ -95,9 +100,9 @@ jobs:
         id: upload-artifacts
         with:
           draft: false
-          name: ${{ env.SWIFT_SYNTAX_TAG }}
-          tag_name: ${{ env.SWIFT_SYNTAX_TAG }}
-          body: Release from swift-syntax ${{ env.SWIFT_SYNTAX_TAG }}
+          name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ env.RELEASE_TAG }}
+          body: Release from swift-syntax ${{ env.SWIFT_SYNTAX_TAG }} tagged with ${{ env.RELEASE_TAG }}
           files: ${{ env.BUILD_PATH }}/*.zip
           fail_on_unmatched_files: true
           token: ${{ secrets.RELEASE_GITHUB_TOKEN }}
